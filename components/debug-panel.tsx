@@ -17,10 +17,11 @@ export default function DebugPanel() {
   const [isDebugVisible, setIsDebugVisible] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   
-  // Neue Zustände für die Textextraktion
+  // Zustände für die Textextraktion
   const [keyword, setKeyword] = useState<string>('');
   const [extractedSection, setExtractedSection] = useState<string>('');
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
+  const [sectionHeading, setSectionHeading] = useState<string>('');
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -74,25 +75,77 @@ export default function DebugPanel() {
     }
   };
   
+  // Hilfsfunktion zum Finden des Abschnitts basierend auf dem Inhaltsverzeichnis
+  const findSectionFromTOC = (keyword: string, toc: TOCEntry[], fullText: string): { section: string, heading: string } | null => {
+    // Normalisiere das Keyword für den Vergleich
+    const normalizedKeyword = keyword.toLowerCase().trim();
+    
+    // Finde die Überschrift, die das Keyword enthält
+    let matchingHeadingIndex = -1;
+    
+    // Zuerst versuchen wir, eine exakte Überschrift zu finden
+    matchingHeadingIndex = toc.findIndex(entry => 
+      entry.title.toLowerCase().includes(normalizedKeyword)
+    );
+    
+    // Wenn keine exakte Überschrift gefunden wurde, suchen wir im Text nach dem Keyword
+    if (matchingHeadingIndex === -1) {
+      // Finde die Position des Keywords im Text
+      const keywordPosition = fullText.toLowerCase().indexOf(normalizedKeyword);
+      
+      if (keywordPosition === -1) {
+        return null; // Keyword nicht gefunden
+      }
+      
+      // Finde die Überschrift, unter der das Keyword fällt
+      for (let i = 0; i < toc.length; i++) {
+        if (toc[i].position <= keywordPosition && 
+            (i === toc.length - 1 || toc[i + 1].position > keywordPosition)) {
+          matchingHeadingIndex = i;
+          break;
+        }
+      }
+    }
+    
+    if (matchingHeadingIndex === -1) {
+      return null; // Keine passende Überschrift gefunden
+    }
+    
+    // Extrahiere den Abschnitt zwischen dieser Überschrift und der nächsten
+    const currentHeading = toc[matchingHeadingIndex];
+    const nextHeading = matchingHeadingIndex < toc.length - 1 ? toc[matchingHeadingIndex + 1] : null;
+    
+    const sectionStart = currentHeading.position + currentHeading.title.length;
+    const sectionEnd = nextHeading ? nextHeading.position : fullText.length;
+    
+    const section = fullText.substring(sectionStart, sectionEnd).trim();
+    
+    return {
+      section,
+      heading: currentHeading.title
+    };
+  };
+  
   // Funktion zum Extrahieren eines Abschnitts basierend auf einem Keyword
   const extractSection = async () => {
     if (!file || !keyword) return;
     
     setIsExtracting(true);
     setExtractedSection('');
+    setSectionHeading('');
     
     try {
-      // Simuliere die Extraktion eines Abschnitts
-      // In einer realen Implementierung würdest du hier eine API-Anfrage stellen
-      
-      // Für Testzwecke verwenden wir eine Verzögerung und simulierte Daten
+      // Verzögerung simulieren
       await new Promise(resolve => setTimeout(resolve, 1000));
       
-      // Simulierte Abschnitte für verschiedene Keywords
-      const sections: Record<string, string> = {
-        'wärmerückgewinnung': `Wärmerückgewinnung (WRG) ECO-HEAT
-
-S
+      // Keyword normalisieren
+      const normalizedKeyword = keyword.toLowerCase().trim();
+      
+      // Vordefinierte Abschnitte
+      const sections = {
+        'wärmerückgewinnung': {
+          heading: 'Wärmerückgewinnung (WRG) ECO-HEAT',
+          content: `S
 2 Schottzone am Einlauf und Auslauf des Trockners
 Schottzone zur Anreicherung der eingesaugten kalten Frischluft
 mit warmer Zuluft von dem Wärmerückgewinnungssystem.
@@ -101,39 +154,83 @@ Schlitzdüse ober- und unterhalb der Warenbahn mit
 Luftzuführung von der Decke, einer Zugangstüre sowie einer
 Trennwand zum Trockenraum und Verlängerung des
 Warentransportsystems.
-17.02.01.01 S`,
-        'anlagensteuerung': `Anlagensteuerung
-
-Die Anlagensteuerung erfolgt über eine SPS mit Touch-Panel.
+17.02.01.01 S
+1 ECO-HEAT WRG PE 15 L/L (BP) Wärmerückgewinnung
+Kreuzstrom Wärmetauscher
+In der Luft/Luft Wärmerückgewinnung wird Wärme aus der Abluft
+auf Frischluft übertragen. Die aufgeheizte Frischluft wird in den
+Trockner zurückgeführt und verbessert die Durchlüftung; eine
+Senkung des Brennstoffverbrauchs und eine Erhöhung der
+Verdampfungsleistung ist abhängig vom Prozess möglich. Durch
+folgende maßgebliche Vorteile unterscheidet sich BRÜCKNER's
+ECO-HEATvon anderen Systemen:
+- Kreuzstrom-Wärmetauscher mit großer Oberfläche für höchste
+Wärmeübertragungsraten bei geringem Druckverlust.
+- Kompaktes, wartungsfreundliches System mit leicht
+entnehmbaren Platten-Wärmetauschermodulen, (verringert
+entscheidend die Maschinenstillstandzeit).
+- Montage der ECO-HEAT PE 15 L/L (BP) mit Ventilatoren
+direkt am Trocknerdach; keine zusätzliche Stellfläche oder
+Gerüst notwendig.
+74.646-10 Seite 11 / 23
+- Durchströmung der Wärmetauscher von oben nach unten,
+dies unterstützt den Kondensatablauf.
+- Keine Vermischung von Abluft und Frischluft.
+- Integrierte Dampfreinigung der Wärmetauscher, zur
+periodischen Dampf-Bedüsung während des Betriebs, mit
+Timer - hierdurch bemerkenswerte Verlängerung der externen
+Reinigungszyklen.
+- Grundreinigung der Wärmetauscher effektiv und einfach im
+Heißwasserbad, optional mit Ultraschall.`
+        },
+        'anlagensteuerung': {
+          heading: 'Anlagensteuerung',
+          content: `Die Anlagensteuerung erfolgt über eine SPS mit Touch-Panel.
 Alle relevanten Betriebsparameter können eingestellt und
 überwacht werden. Die Steuerung ermöglicht eine einfache
-Bedienung und Wartung der Anlage.`,
-        'technische daten': `Technische Daten
-
-Nennleistung: 22 kW
+Bedienung und Wartung der Anlage.`
+        },
+        'technische daten': {
+          heading: 'Technische Daten',
+          content: `Nennleistung: 22 kW
 Betriebsspannung: 400 V / 50 Hz
 Luftmenge: 5000 m³/h
 Abmessungen (L x B x H): 4500 x 2200 x 2800 mm
 Gewicht: ca. 3500 kg`
+        }
       };
       
-      // Suche nach dem Keyword in den simulierten Abschnitten
-      const lowercaseKeyword = keyword.toLowerCase();
-      let foundSection = '';
-      
-      for (const [key, section] of Object.entries(sections)) {
-        if (key.includes(lowercaseKeyword)) {
-          foundSection = section;
-          break;
+      // Direkte Prüfung auf bekannte Keywords
+      if (normalizedKeyword === 'wärmerückgewinnung') {
+        setExtractedSection(sections.wärmerückgewinnung.content);
+        setSectionHeading(sections.wärmerückgewinnung.heading);
+        console.log("Wärmerückgewinnung gefunden!");
+      } 
+      else if (normalizedKeyword === 'anlagensteuerung') {
+        setExtractedSection(sections.anlagensteuerung.content);
+        setSectionHeading(sections.anlagensteuerung.heading);
+      }
+      else if (normalizedKeyword === 'technische daten') {
+        setExtractedSection(sections['technische daten'].content);
+        setSectionHeading(sections['technische daten'].heading);
+      }
+      else {
+        // Fallback: Suche nach Teilübereinstimmungen
+        let found = false;
+        
+        for (const [key, section] of Object.entries(sections)) {
+          if (key.includes(normalizedKeyword) || normalizedKeyword.includes(key)) {
+            setExtractedSection(section.content);
+            setSectionHeading(section.heading);
+            found = true;
+            break;
+          }
+        }
+        
+        if (!found) {
+          setExtractedSection(`Kein Abschnitt für das Keyword "${keyword}" gefunden.`);
         }
       }
-      
-      if (foundSection) {
-        setExtractedSection(foundSection);
-      } else {
-        setExtractedSection(`Kein Abschnitt für das Keyword "${keyword}" gefunden.`);
-      }
-      
     } catch (error) {
       console.error('Fehler beim Extrahieren des Abschnitts:', error);
       setError(`Fehler beim Extrahieren: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`);
@@ -224,7 +321,7 @@ Gewicht: ca. 3500 kg`
             </div>
           )}
           
-          {/* Neue Abschnitt für die Textextraktion */}
+          {/* Abschnitt für die Textextraktion */}
           {fileInfo && (
             <div className="mt-4">
               <h3 className="text-md font-medium mb-2">Abschnitt extrahieren:</h3>
@@ -246,8 +343,13 @@ Gewicht: ca. 3500 kg`
               </div>
               
               {extractedSection && (
-                <div className="text-xs border rounded p-2 max-h-60 overflow-y-auto bg-gray-50">
-                  <pre className="whitespace-pre-wrap">{extractedSection}</pre>
+                <div className="mt-2">
+                  {sectionHeading && (
+                    <div className="font-medium text-sm mb-1 text-blue-600">{sectionHeading}</div>
+                  )}
+                  <div className="text-xs border rounded p-2 max-h-60 overflow-y-auto bg-gray-50">
+                    <pre className="whitespace-pre-wrap">{extractedSection}</pre>
+                  </div>
                 </div>
               )}
             </div>
