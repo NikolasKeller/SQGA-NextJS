@@ -22,6 +22,7 @@ export default function DebugPanel() {
   const [extractedSection, setExtractedSection] = useState<string>('');
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
   const [sectionHeading, setSectionHeading] = useState<string>('');
+  const [ocrId, setOcrId] = useState<string | null>(null);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -35,7 +36,7 @@ export default function DebugPanel() {
       const formData = new FormData();
       formData.append('file', file);
       
-      const response = await fetch('/api/test-section', {
+      const response = await fetch('/api/mistral-ocr-direct', {
         method: 'POST',
         body: formData
       });
@@ -61,6 +62,8 @@ export default function DebugPanel() {
           setTableOfContents(data.tableOfContents);
         }
         
+        setOcrId(data.ocrId);
+        
         if (data.processingError) {
           setError(`Verarbeitungswarnung: ${data.processingError}`);
         }
@@ -80,6 +83,35 @@ export default function DebugPanel() {
     // Normalisiere das Keyword für den Vergleich
     const normalizedKeyword = keyword.toLowerCase().trim();
     
+    // Spezielle Behandlung für "Wärmerückgewinnung"
+    if (normalizedKeyword === "wärmerückgewinnung") {
+      const wrgHeadingIndex = toc.findIndex(entry => 
+        entry.title.toLowerCase().includes("wärmerückgewinnung")
+      );
+      
+      if (wrgHeadingIndex !== -1) {
+        const wrgHeading = toc[wrgHeadingIndex];
+        let nextHeadingIndex = -1;
+        
+        // Suche nach "Preis" oder "Zusammenfassung" als Ende des Abschnitts
+        for (let i = wrgHeadingIndex + 1; i < toc.length; i++) {
+          if (toc[i].title.toLowerCase().includes("preis") || 
+              toc[i].title.toLowerCase().includes("zusammenfassung")) {
+            nextHeadingIndex = i;
+            break;
+          }
+        }
+        
+        const sectionStart = wrgHeading.position + wrgHeading.title.length;
+        const sectionEnd = nextHeadingIndex !== -1 ? toc[nextHeadingIndex].position : fullText.length;
+        
+        return {
+          section: fullText.substring(sectionStart, sectionEnd).trim(),
+          heading: wrgHeading.title
+        };
+      }
+    }
+    
     // Finde die Überschrift, die das Keyword enthält
     let matchingHeadingIndex = -1;
     
@@ -94,20 +126,52 @@ export default function DebugPanel() {
       const keywordPosition = fullText.toLowerCase().indexOf(normalizedKeyword);
       
       if (keywordPosition === -1) {
-        return null; // Keyword nicht gefunden
-      }
-      
-      // Finde die Überschrift, unter der das Keyword fällt
-      for (let i = 0; i < toc.length; i++) {
-        if (toc[i].position <= keywordPosition && 
-            (i === toc.length - 1 || toc[i + 1].position > keywordPosition)) {
-          matchingHeadingIndex = i;
-          break;
+        // Versuche ähnliche Keywords zu finden
+        const similarKeywords = [
+          normalizedKeyword.replace(/\s+/g, ''),  // Ohne Leerzeichen
+          normalizedKeyword.replace(/-/g, ' '),   // Bindestrich durch Leerzeichen ersetzen
+          normalizedKeyword.replace(/\([^)]*\)/g, '') // Klammern entfernen
+        ];
+        
+        for (const similarKeyword of similarKeywords) {
+          const similarPosition = fullText.toLowerCase().indexOf(similarKeyword);
+          if (similarPosition !== -1) {
+            // Finde die Überschrift, unter der das ähnliche Keyword fällt
+            for (let i = 0; i < toc.length; i++) {
+              if (toc[i].position <= similarPosition && 
+                  (i === toc.length - 1 || toc[i + 1].position > similarPosition)) {
+                matchingHeadingIndex = i;
+                break;
+              }
+            }
+            break;
+          }
+        }
+        
+        if (matchingHeadingIndex === -1) {
+          return null; // Keyword nicht gefunden
+        }
+      } else {
+        // Finde die Überschrift, unter der das Keyword fällt
+        for (let i = 0; i < toc.length; i++) {
+          if (toc[i].position <= keywordPosition && 
+              (i === toc.length - 1 || toc[i + 1].position > keywordPosition)) {
+            matchingHeadingIndex = i;
+            break;
+          }
         }
       }
     }
     
     if (matchingHeadingIndex === -1) {
+      // Direkte Textsuche als Fallback
+      const keywordContext = extractKeywordContext(fullText, normalizedKeyword, 500);
+      if (keywordContext) {
+        return {
+          section: keywordContext,
+          heading: `Kontext für "${keyword}"`
+        };
+      }
       return null; // Keine passende Überschrift gefunden
     }
     
@@ -126,114 +190,42 @@ export default function DebugPanel() {
     };
   };
   
+  // Hilfsfunktion zum Extrahieren des Kontexts um ein Keyword herum
+  const extractKeywordContext = (text: string, keyword: string, contextSize: number = 500): string | null => {
+    const normalizedText = text.toLowerCase();
+    const keywordIndex = normalizedText.indexOf(keyword);
+    
+    if (keywordIndex === -1) return null;
+    
+    const startIndex = Math.max(0, keywordIndex - contextSize / 2);
+    const endIndex = Math.min(text.length, keywordIndex + keyword.length + contextSize / 2);
+    
+    return text.substring(startIndex, endIndex).trim();
+  };
+  
   // Funktion zum Extrahieren eines Abschnitts basierend auf einem Keyword
   const extractSection = async () => {
-    if (!file || !keyword) return;
+    if (!ocrId || !keyword) return;
     
     setIsExtracting(true);
     setExtractedSection('');
     setSectionHeading('');
     
     try {
-      // Verzögerung simulieren
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Verwende die einfache Suche statt der API
+      const matchingSection = findSectionFromTOC(keyword, tableOfContents, pdfText);
       
-      // Keyword normalisieren
-      const normalizedKeyword = keyword.toLowerCase().trim();
-      
-      // Vordefinierte Abschnitte
-      const sections = {
-        'wärmerückgewinnung': {
-          heading: 'Wärmerückgewinnung (WRG) ECO-HEAT',
-          content: `S
-2 Schottzone am Einlauf und Auslauf des Trockners
-Schottzone zur Anreicherung der eingesaugten kalten Frischluft
-mit warmer Zuluft von dem Wärmerückgewinnungssystem.
-Bestehend aus Gestell, Thermoisolierung, jeweils einer
-Schlitzdüse ober- und unterhalb der Warenbahn mit
-Luftzuführung von der Decke, einer Zugangstüre sowie einer
-Trennwand zum Trockenraum und Verlängerung des
-Warentransportsystems.
-17.02.01.01 S
-1 ECO-HEAT WRG PE 15 L/L (BP) Wärmerückgewinnung
-Kreuzstrom Wärmetauscher
-In der Luft/Luft Wärmerückgewinnung wird Wärme aus der Abluft
-auf Frischluft übertragen. Die aufgeheizte Frischluft wird in den
-Trockner zurückgeführt und verbessert die Durchlüftung; eine
-Senkung des Brennstoffverbrauchs und eine Erhöhung der
-Verdampfungsleistung ist abhängig vom Prozess möglich. Durch
-folgende maßgebliche Vorteile unterscheidet sich BRÜCKNER's
-ECO-HEATvon anderen Systemen:
-- Kreuzstrom-Wärmetauscher mit großer Oberfläche für höchste
-Wärmeübertragungsraten bei geringem Druckverlust.
-- Kompaktes, wartungsfreundliches System mit leicht
-entnehmbaren Platten-Wärmetauschermodulen, (verringert
-entscheidend die Maschinenstillstandzeit).
-- Montage der ECO-HEAT PE 15 L/L (BP) mit Ventilatoren
-direkt am Trocknerdach; keine zusätzliche Stellfläche oder
-Gerüst notwendig.
-74.646-10 Seite 11 / 23
-- Durchströmung der Wärmetauscher von oben nach unten,
-dies unterstützt den Kondensatablauf.
-- Keine Vermischung von Abluft und Frischluft.
-- Integrierte Dampfreinigung der Wärmetauscher, zur
-periodischen Dampf-Bedüsung während des Betriebs, mit
-Timer - hierdurch bemerkenswerte Verlängerung der externen
-Reinigungszyklen.
-- Grundreinigung der Wärmetauscher effektiv und einfach im
-Heißwasserbad, optional mit Ultraschall.`
-        },
-        'anlagensteuerung': {
-          heading: 'Anlagensteuerung',
-          content: `Die Anlagensteuerung erfolgt über eine SPS mit Touch-Panel.
-Alle relevanten Betriebsparameter können eingestellt und
-überwacht werden. Die Steuerung ermöglicht eine einfache
-Bedienung und Wartung der Anlage.`
-        },
-        'technische daten': {
-          heading: 'Technische Daten',
-          content: `Nennleistung: 22 kW
-Betriebsspannung: 400 V / 50 Hz
-Luftmenge: 5000 m³/h
-Abmessungen (L x B x H): 4500 x 2200 x 2800 mm
-Gewicht: ca. 3500 kg`
-        }
-      };
-      
-      // Direkte Prüfung auf bekannte Keywords
-      if (normalizedKeyword === 'wärmerückgewinnung') {
-        setExtractedSection(sections.wärmerückgewinnung.content);
-        setSectionHeading(sections.wärmerückgewinnung.heading);
-        console.log("Wärmerückgewinnung gefunden!");
-      } 
-      else if (normalizedKeyword === 'anlagensteuerung') {
-        setExtractedSection(sections.anlagensteuerung.content);
-        setSectionHeading(sections.anlagensteuerung.heading);
-      }
-      else if (normalizedKeyword === 'technische daten') {
-        setExtractedSection(sections['technische daten'].content);
-        setSectionHeading(sections['technische daten'].heading);
-      }
-      else {
-        // Fallback: Suche nach Teilübereinstimmungen
-        let found = false;
-        
-        for (const [key, section] of Object.entries(sections)) {
-          if (key.includes(normalizedKeyword) || normalizedKeyword.includes(key)) {
-            setExtractedSection(section.content);
-            setSectionHeading(section.heading);
-            found = true;
-            break;
-          }
-        }
-        
-        if (!found) {
-          setExtractedSection(`Kein Abschnitt für das Keyword "${keyword}" gefunden.`);
-        }
+      if (matchingSection) {
+        setExtractedSection(matchingSection.section);
+        setSectionHeading(matchingSection.heading);
+      } else {
+        setExtractedSection(`Kein Abschnitt für das Keyword "${keyword}" gefunden.`);
+        setSectionHeading(`Suche nach "${keyword}"`);
       }
     } catch (error) {
       console.error('Fehler beim Extrahieren des Abschnitts:', error);
       setError(`Fehler beim Extrahieren: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`);
+      setExtractedSection(`Kein Abschnitt für das Keyword "${keyword}" gefunden.`);
     } finally {
       setIsExtracting(false);
     }
@@ -309,15 +301,6 @@ Gewicht: ca. 3500 kg`
                   </li>
                 ))}
               </ul>
-            </div>
-          )}
-          
-          {pdfText && (
-            <div className="mt-4">
-              <h3 className="text-md font-medium mb-2">PDF-Text (Auszug):</h3>
-              <div className="text-xs border rounded p-2 max-h-40 overflow-y-auto">
-                {pdfText}...
-              </div>
             </div>
           )}
           

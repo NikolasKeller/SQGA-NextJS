@@ -4,10 +4,10 @@
 // import { ProgressIndicator } from "../components/progress-indicator"
 // import { DebugPanel } from "../components/debug-panel"
 
-import { useState } from "react";
+import React, { useState } from "react";
 
 // Inline Modal-Komponente
-interface ModalProps {
+interface SpecificationModalProps {
   isOpen: boolean;
   onClose: () => void;
   onConfirm: () => void;
@@ -17,7 +17,7 @@ interface ModalProps {
   }[];
 }
 
-function SpecificationModal({ isOpen, onClose, onConfirm, specifications }: ModalProps) {
+function SpecificationModal({ isOpen, onClose, onConfirm, specifications }: SpecificationModalProps) {
   if (!isOpen) return null;
 
   return (
@@ -53,7 +53,7 @@ function SpecificationModal({ isOpen, onClose, onConfirm, specifications }: Moda
             onClick={onConfirm}
             className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
           >
-            Zum Angebot fortfahren
+            Bestätigen
           </button>
         </div>
       </div>
@@ -64,45 +64,49 @@ function SpecificationModal({ isOpen, onClose, onConfirm, specifications }: Moda
 export default function Home() {
   const [activeStep, setActiveStep] = useState(1);
   const [file, setFile] = useState<File | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [specifications, setSpecifications] = useState([
-    { type: "Material", count: 1 },
-    { type: "Technische", count: 3 }
-  ]);
+  const [requirements, setRequirements] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isGenerated, setIsGenerated] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  
+  // Beispiel-Spezifikationen
+  const [specifications] = useState([
+    { type: 'Elektrische', count: 12 },
+    { type: 'Mechanische', count: 8 },
+    { type: 'Sicherheits', count: 5 }
+  ]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
+    const selectedFile = e.target.files?.[0];
+    if (selectedFile) {
+      setFile(selectedFile);
     }
   };
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      setFile(e.dataTransfer.files[0]);
+    const droppedFile = e.dataTransfer.files[0];
+    if (droppedFile && droppedFile.type === 'application/pdf') {
+      setFile(droppedFile);
     }
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
   };
 
   const handleGenerate = () => {
-    setIsModalOpen(true);
+    setIsGenerating(true);
+    
+    // Simuliere API-Aufruf
+    setTimeout(() => {
+      setIsGenerating(false);
+      setActiveStep(3);
+    }, 2000);
   };
 
   const handleModalConfirm = () => {
     setIsModalOpen(false);
-    setIsGenerating(true);
-    
-    // Simuliere den Generierungsprozess
-    setTimeout(() => {
-      setIsGenerating(false);
-      setIsGenerated(true);
-      setActiveStep(3);
-    }, 2000);
+    handleGenerate();
   };
 
   return (
@@ -188,6 +192,8 @@ export default function Home() {
                 className="w-full p-4 border border-gray-300 rounded-lg" 
                 rows={6}
                 placeholder="Beschreiben Sie Ihre Anforderungen..."
+                value={requirements}
+                onChange={(e) => setRequirements(e.target.value)}
               ></textarea>
             </div>
           </div>
@@ -253,7 +259,7 @@ export default function Home() {
               className="px-4 py-2 bg-green-600 text-white rounded-md ml-auto"
               onClick={handleGenerate}
             >
-              Generieren
+              Angebot generieren
             </button>
           )}
           {activeStep === 3 && (
