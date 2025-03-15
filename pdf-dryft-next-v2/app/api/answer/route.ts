@@ -1,0 +1,1 @@
+// Für get_direct_answer Funktionalität 

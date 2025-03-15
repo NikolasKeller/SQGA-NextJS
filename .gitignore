@@ -1,0 +1,7 @@
+﻿node_modules/
+.next/
+demo_backup_old/
+.env
+.env.local
+*.log
+.DS_Store

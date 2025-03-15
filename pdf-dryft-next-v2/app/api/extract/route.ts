@@ -1,0 +1,1 @@
+// Für extract_text_from_pdf Funktionalität 
