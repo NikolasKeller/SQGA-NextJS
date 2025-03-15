@@ -36,4 +36,25 @@ export async function extractTextFromPDF(buffer: Buffer): Promise<string> {
     console.error('PDF extraction error:', error);
     throw new Error(`PDF extraction failed: ${error.message}`);
   }
+}
+
+interface TextItem {
+  text: string;
+  isBold: boolean;
+  fontSize?: number;
+}
+
+export async function extractStructuredContent(buffer: Buffer): Promise<TextItem[]> {
+  // TODO: Implementiere die PDF-Extraktion mit Formatierungsinformationen
+  // Dies erfordert eine PDF-Bibliothek, die Formatierungen erkennen kann
+  
+  // Beispiel-Implementation:
+  const pdfText = await extractTextFromPDF(buffer);
+  const lines = pdfText.split('\n');
+  
+  return lines.map(line => ({
+    text: line,
+    isBold: /^\d+\s+[A-Z]/.test(line), // Vorläufig: Erkennt nummerierte Überschriften
+    fontSize: undefined
+  }));
 } 

@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { processPDF } from '@/lib/pdfUtils'
-import { extractTextFromPDF } from '@/lib/pdf-utils'
+import { extractTextFromPDF, extractStructuredContent } from '@/lib/pdf-utils'
 import { findRelevantContext } from '@/lib/search-utils'
+
+interface Section {
+  title: string;
+  content: string;
+  isBold: boolean;
+}
 
 export async function POST(request: Request) {
   try {
@@ -13,42 +19,66 @@ export async function POST(request: Request) {
     const buffer = Buffer.from(arrayBuffer);
     const pdfText = await extractTextFromPDF(buffer);
     
-    // Teile die Requirements in einzelne Keywords und entferne das "/" am Anfang
+    // Teile den Text in Sätze
+    const sentences = pdfText.split(/(?<=[.!?])\s+(?=[A-Z])/)
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
+
+    console.log('Gefundene Sätze:', sentences.length); // Debug
+
     const keywords = requirements
       .split('\n')
       .map(k => k.trim())
       .filter(k => k.length > 0)
       .map(k => k.startsWith('/') ? k.substring(1) : k);
 
-    console.log('Suche nach Keywords:', keywords);
-
-    // Suche für jedes Keyword
     const allMatches = keywords.map(keyword => {
-      const sentences = pdfText.split(/[.!?\n]/)
-        .map(sentence => sentence.trim())
-        .filter(sentence => sentence.length > 0);
+      // Finde die Indizes der Sätze, die das Keyword enthalten
+      const matchingIndices = sentences.reduce((acc, sentence, index) => {
+        if (sentence.toLowerCase().includes(keyword.toLowerCase())) {
+          acc.push(index);
+        }
+        return acc;
+      }, [] as number[]);
 
-      const matches = sentences.filter(sentence => {
-        const hasKeyword = sentence.toLowerCase().includes(keyword.toLowerCase());
-        const isNotContact = !sentence.match(/(?:SWIFT|BIC|IBAN|Bank|Telefon|E-Mail|@)/i);
-        return hasKeyword && isNotContact;
-      });
-
-      if (matches.length === 0) {
+      if (matchingIndices.length === 0) {
         return `Keine Treffer für: "${keyword}"`;
       }
 
-      // Formatiere jeden Match mit Keyword-Header
-      return matches.map(match => 
-        `Keyword: "${keyword}"\n${formatText(match, 50)}`
-      ).join('\n\n');
+      // Für jeden Fund hole den erweiterten Kontext
+      return matchingIndices.map(matchIndex => {
+        // Hole 2 Sätze vor und nach dem Match
+        const contextSize = 2;
+        const startIndex = Math.max(0, matchIndex - contextSize);
+        const endIndex = Math.min(sentences.length, matchIndex + contextSize + 1);
+        
+        // Extrahiere den Kontext
+        const contextSentences = sentences.slice(startIndex, endIndex);
+        
+        // Finde die nächstgelegene Überschrift
+        let title = "Abschnitt";
+        for (let i = matchIndex; i >= 0; i--) {
+          if (sentences[i].match(/^\d+\.?\s+[A-Z]/)) {
+            title = sentences[i];
+            break;
+          }
+        }
+
+        // Formatiere den Kontext und markiere das Keyword
+        const context = contextSentences.map(sentence => {
+          if (sentence.toLowerCase().includes(keyword.toLowerCase())) {
+            // Markiere das Keyword im Satz
+            return sentence.replace(new RegExp(`(${keyword})`, 'gi'), '**$1**');
+          }
+          return sentence;
+        }).join(' ');
+        
+        return `Keyword: "${keyword}"\n\nAbschnitt: ${title}\n\n${formatText(context, 80)}`;
+      }).join('\n\n---\n\n');
     });
 
-    // Kombiniere alle Ergebnisse
-    const formattedResult = allMatches.join('\n\n');
-
     return NextResponse.json({
-      technical_details: formattedResult,
+      technical_details: allMatches.join('\n\n'),
       success: true
     });
 
@@ -56,21 +86,14 @@ export async function POST(request: Request) {
     console.error('Fehler bei der Verarbeitung:', error);
     return NextResponse.json({ 
       technical_details: 'Fehler bei der Verarbeitung',
-      success: false
+      success: false 
     });
   }
 }
 
 function formatText(text: string, maxLength: number): string {
-  // Entferne überschüssige Leerzeichen
-  const cleanText = text.replace(/\s+/g, ' ').trim();
-  
-  // Prüfe auf Referenznummern am Anfang
-  const refMatch = cleanText.match(/^(\d+[-\s]*\d*\s+(?:Seite\s+\d+\s+\/\s+)?\d+)/);
-  const reference = refMatch ? refMatch[1] + '\n' : '';
-  const remainingText = refMatch ? cleanText.slice(refMatch[1].length).trim() : cleanText;
-
-  const words = remainingText.split(' ');
+  // Teile den Text in Wörter
+  const words = text.split(/\s+/);
   const lines = [];
   let currentLine = '';
   
@@ -87,7 +110,7 @@ function formatText(text: string, maxLength: number): string {
     lines.push(currentLine);
   }
   
-  return reference + lines.join('\n');
+  return lines.join('\n');
 }
 
 function extractRelevantSection(pdfText: string, keyword: string): string {
