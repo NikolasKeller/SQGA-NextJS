@@ -1,289 +1,264 @@
 "use client"
 
 import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Textarea } from "@/components/ui/textarea"
-import * as pdfjsLib from 'pdfjs-dist'
-import { ClaudeService } from '@/services/claude-service'
 
-// Worker-Konfiguration
-if (typeof window !== 'undefined') {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+interface TOCEntry {
+  title: string;
+  level: number;
+  position: number;
 }
 
-interface DebugPanelProps {
-  // ... falls Props benötigt werden
-}
-
-export default function DebugPanel({}: DebugPanelProps) {
+export default function DebugPanel() {
   const [file, setFile] = useState<File | null>(null);
-  const [requirements, setRequirements] = useState('');
-  const [result, setResult] = useState<string>('');
+  const [fileInfo, setFileInfo] = useState<any>(null);
+  const [pdfText, setPdfText] = useState<string>('');
+  const [tableOfContents, setTableOfContents] = useState<TOCEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isDebugVisible, setIsDebugVisible] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Neue Zustände für die Textextraktion
+  const [keyword, setKeyword] = useState<string>('');
+  const [extractedSection, setExtractedSection] = useState<string>('');
+  const [isExtracting, setIsExtracting] = useState<boolean>(false);
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files && event.target.files[0]) {
-      setFile(event.target.files[0]);
-    }
-  };
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-  const processRequirements = async () => {
-    if (!file || !requirements) return;
-
+    setFile(file);
+    setIsLoading(true);
+    setError(null);
+    
     try {
-      setIsLoading(true);
-      
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('requirements', requirements);
       
-      const response = await fetch('/api/process', {
+      const response = await fetch('/api/test-section', {
         method: 'POST',
         body: formData
       });
-
+      
+      if (!response.ok) {
+        throw new Error(`API-Fehler: ${response.status}`);
+      }
+      
       const data = await response.json();
-      // Direkt den technical_details String anzeigen
-      setResult(data.technical_details || 'Keine technischen Details gefunden');
-
+      
+      if (data.success) {
+        setFileInfo({
+          fileName: data.fileName,
+          fileSize: data.fileSize,
+          fileType: data.fileType
+        });
+        
+        if (data.pdfText) {
+          setPdfText(data.pdfText);
+        }
+        
+        if (data.tableOfContents && Array.isArray(data.tableOfContents)) {
+          setTableOfContents(data.tableOfContents);
+        }
+        
+        if (data.processingError) {
+          setError(`Verarbeitungswarnung: ${data.processingError}`);
+        }
+      } else {
+        throw new Error(data.error || 'Unbekannter Fehler');
+      }
     } catch (error) {
-      console.error('Error:', error);
-      setResult('Fehler bei der Verarbeitung');
+      console.error('Fehler beim Verarbeiten der Datei:', error);
+      setError(error instanceof Error ? error.message : 'Unbekannter Fehler');
     } finally {
       setIsLoading(false);
     }
   };
-
-  const [debugState, setDebugState] = useState({
-    status: "waiting_for_input",
-    uploaded_files: [],
-    requirements: "",
-    extracted_information: null
-  });
-
-  const [pdfContent, setPdfContent] = useState<string[]>([]);
-
-  const claudeService = new ClaudeService();
-
-  const extractTextFromPdf = async (file: File): Promise<string> => {
+  
+  // Funktion zum Extrahieren eines Abschnitts basierend auf einem Keyword
+  const extractSection = async () => {
+    if (!file || !keyword) return;
+    
+    setIsExtracting(true);
+    setExtractedSection('');
+    
     try {
-      const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument(new Uint8Array(arrayBuffer)).promise;
+      // Simuliere die Extraktion eines Abschnitts
+      // In einer realen Implementierung würdest du hier eine API-Anfrage stellen
       
-      let fullText = '';
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const textContent = await page.getTextContent();
-        const pageText = textContent.items
-          .map((item: any) => item.str)
-          .join(' ');
-        fullText += pageText + '\n';
-      }
+      // Für Testzwecke verwenden wir eine Verzögerung und simulierte Daten
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
-      return fullText;
-    } catch (error) {
-      console.error('PDF Extraktionsfehler:', error);
-      throw error;
-    }
-  };
+      // Simulierte Abschnitte für verschiedene Keywords
+      const sections: Record<string, string> = {
+        'wärmerückgewinnung': `Wärmerückgewinnung (WRG) ECO-HEAT
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
-    if (!files) return;
+S
+2 Schottzone am Einlauf und Auslauf des Trockners
+Schottzone zur Anreicherung der eingesaugten kalten Frischluft
+mit warmer Zuluft von dem Wärmerückgewinnungssystem.
+Bestehend aus Gestell, Thermoisolierung, jeweils einer
+Schlitzdüse ober- und unterhalb der Warenbahn mit
+Luftzuführung von der Decke, einer Zugangstüre sowie einer
+Trennwand zum Trockenraum und Verlängerung des
+Warentransportsystems.
+17.02.01.01 S`,
+        'anlagensteuerung': `Anlagensteuerung
 
-    try {
-      setDebugState(prev => ({
-        ...prev,
-        status: "processing",
-        uploaded_files: Array.from(files).map(file => file.name)
-      }));
+Die Anlagensteuerung erfolgt über eine SPS mit Touch-Panel.
+Alle relevanten Betriebsparameter können eingestellt und
+überwacht werden. Die Steuerung ermöglicht eine einfache
+Bedienung und Wartung der Anlage.`,
+        'technische daten': `Technische Daten
 
-      const contents = await Promise.all(
-        Array.from(files).map(file => extractTextFromPdf(file))
-      );
-
-      setPdfContent(contents);
-      setDebugState(prev => ({
-        ...prev,
-        status: "ready"
-      }));
-    } catch (error) {
-      console.error('Fehler beim Datei-Upload:', error);
-      setDebugState(prev => ({
-        ...prev,
-        status: "error",
-        extracted_information: null
-      }));
-    }
-  };
-
-  const searchWithClaude = async (keyword: string, context: string): Promise<string> => {
-    try {
-      const response = await fetch('/api/claude', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ keyword, context })
-      });
-
-      if (!response.ok) throw new Error('API request failed');
-
-      const data = await response.json();
-      return data.result;
-    } catch (error) {
-      console.error('Claude API Error:', error);
-      throw error;
-    }
-  };
-
-  const findRelevantContext = async (text: string, keyword: string): Promise<string> => {
-    try {
-      console.log('Starting search for:', keyword);
-      console.log('Text length:', text.length);
+Nennleistung: 22 kW
+Betriebsspannung: 400 V / 50 Hz
+Luftmenge: 5000 m³/h
+Abmessungen (L x B x H): 4500 x 2200 x 2800 mm
+Gewicht: ca. 3500 kg`
+      };
       
-      // Debug: Zeige die ersten paar Zeilen
-      const firstLines = text.split('\n').slice(0, 5);
-      console.log('First few lines:', firstLines);
-
-      // Verbesserte Segmentierung mit Debug-Logging
-      const lines = text.split(/\n/)
-        .map(line => line.trim())
-        .filter(line => line.length > 0);
+      // Suche nach dem Keyword in den simulierten Abschnitten
+      const lowercaseKeyword = keyword.toLowerCase();
+      let foundSection = '';
       
-      console.log('Number of lines after splitting:', lines.length);
-
-      // Exakte Suche mit Debug-Logging
-      const exactMatches = lines.filter(line => {
-        const containsKeyword = line.toLowerCase().includes(keyword.toLowerCase());
-        const isRelevantLine = !line.match(/^(SWIFT|BIC|IBAN|AG,|Bank|Telefon|E-Mail|USt-ID)/i);
-        const isArticleLine = line.match(/^\d+(\.\d+)*\s+\d+\s+/) || line.match(/^-*\s*\d+\s+/);
-        
-        if (containsKeyword) {
-          console.log('Found line with keyword:', line);
-          console.log('isRelevantLine:', isRelevantLine);
-          console.log('isArticleLine:', isArticleLine);
-        }
-        
-        return containsKeyword && isRelevantLine && isArticleLine;
-      });
-
-      console.log('Exact matches found:', exactMatches.length);
-
-      if (exactMatches.length > 0) {
-        console.log('Returning exact matches');
-        return exactMatches.join('\n');
-      }
-
-      // Rest der Logik für Claude bleibt gleich...
-      console.log('No exact matches, trying Claude...');
-      const claudeResult = await searchWithClaude(keyword, text);
-      
-      if (claudeResult && claudeResult.includes('Similar Results')) {
-        const similarTerm = claudeResult.match(/Similar Results for the keyword '[^']+': ([^\n]+)/)?.[1];
-        
-        if (similarTerm) {
-          const similarMatches = lines
-            .filter(line => {
-              const containsSimilar = line.toLowerCase().includes(similarTerm.toLowerCase());
-              const isRelevantLine = !line.match(/^(SWIFT|BIC|IBAN|AG,|Bank|Telefon|E-Mail|USt-ID)/i);
-              const isArticleLine = line.match(/^\d+(\.\d+)*\s+\d+\s+/) || line.match(/^-*\s*\d+\s+/);
-              
-              return containsSimilar && isRelevantLine && isArticleLine;
-            });
-
-          if (similarMatches.length > 0) {
-            return `Hinweis: Keine exakten Treffer für "${keyword}" gefunden.
-Stattdessen Ergebnisse für den ähnlichen Begriff "${similarTerm}":\n\n${similarMatches.join('\n')}`;
-          }
+      for (const [key, section] of Object.entries(sections)) {
+        if (key.includes(lowercaseKeyword)) {
+          foundSection = section;
+          break;
         }
       }
-
-      return `Keine Informationen zu "${keyword}" gefunden`;
-
+      
+      if (foundSection) {
+        setExtractedSection(foundSection);
+      } else {
+        setExtractedSection(`Kein Abschnitt für das Keyword "${keyword}" gefunden.`);
+      }
+      
     } catch (error) {
-      console.error('Error in findRelevantContext:', error);
-      return 'Fehler bei der Suche. Bitte versuchen Sie es später erneut.';
+      console.error('Fehler beim Extrahieren des Abschnitts:', error);
+      setError(`Fehler beim Extrahieren: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`);
+    } finally {
+      setIsExtracting(false);
     }
   };
 
-  const handleProcessRequirements = async () => {
-    if (!debugState.requirements || pdfContent.length === 0) return;
-
-    try {
-      const keywords = debugState.requirements
-        .split(/[-\n]/)
-        .map(k => k.trim())
-        .filter(k => k.length > 0)
-        .map(k => k.startsWith('-') ? k.substring(1).trim() : k);
-
-      const results = await Promise.all(keywords.map(async keyword => {
-        for (const content of pdfContent) {
-          const found = await findRelevantContext(content, keyword);
-          if (found && found !== 'Keine relevanten Informationen gefunden.') return found;
-        }
-        return `Keine Informationen zu "${keyword}" gefunden`;
-      }));
-
-      if (results.length > 0) {
-        setDebugState(prev => ({
-          ...prev,
-          status: "completed",
-          extracted_information: {
-            technical_details: results
-              .filter(result => result && !result.startsWith('Keine Informationen'))
-              .join('\n\n- - - - - - - - - - - - - - - - - - - - - - - - - - -\n\n'),
-            safety_features: null,
-            dimensions: null,
-            transport_system: null
-          }
-        }));
-      }
-    } catch (error) {
-      console.error('Fehler bei der Verarbeitung:', error);
-      setDebugState(prev => ({
-        ...prev,
-        status: "error",
-        extracted_information: null
-      }));
-    }
+  const toggleDebugPanel = () => {
+    setIsDebugVisible(!isDebugVisible);
   };
 
   return (
-    <div className="space-y-4 p-4">
-      <div>
-        <h2 className="text-lg font-bold mb-2">Upload PDFs</h2>
-        <input
-          type="file"
-          accept=".pdf"
-          onChange={handleFileChange}
-          className="mb-4"
-        />
-      </div>
-
-      <div>
-        <h2 className="text-lg font-bold mb-2">Requirements</h2>
-        <Textarea
-          value={requirements}
-          onChange={(e) => setRequirements(e.target.value)}
-          placeholder="Enter requirements..."
-          className="mb-4"
-        />
-        <Button 
-          onClick={processRequirements}
-          disabled={isLoading || !file}
-        >
-          {isLoading ? 'Processing...' : 'Process Requirements'}
-        </Button>
-      </div>
-
-      <div>
-        <h2 className="text-lg font-bold mb-2">Extracted Information</h2>
-        <pre className="whitespace-pre-wrap break-words max-w-full overflow-x-auto bg-gray-100 p-4 rounded">
-          {result}
-        </pre>
-      </div>
+    <div className="relative">
+      {/* Debug-Panel-Toggle-Button */}
+      <button 
+        onClick={toggleDebugPanel}
+        className="fixed bottom-4 right-4 bg-gray-800 text-white p-2 rounded-full shadow-lg z-50"
+        title="Debug-Panel ein-/ausblenden"
+      >
+        {isDebugVisible ? '✕' : '🔍'}
+      </button>
+      
+      {/* Debug-Panel */}
+      {isDebugVisible && (
+        <div className="fixed top-0 right-0 w-80 h-full bg-white shadow-lg overflow-auto z-40 p-4 border-l border-gray-200">
+          <h2 className="text-lg font-semibold mb-4">Debug-Panel</h2>
+          
+          <div className="mb-4">
+            <label className="block mb-2 text-sm font-medium">PDF-Datei auswählen:</label>
+            <input 
+              type="file" 
+              accept=".pdf" 
+              onChange={handleFileChange}
+              className="block w-full text-sm"
+            />
+          </div>
+          
+          {isLoading && (
+            <div className="flex items-center justify-center py-4">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900"></div>
+              <span className="ml-2">Wird verarbeitet...</span>
+            </div>
+          )}
+          
+          {error && (
+            <div className="mt-4 p-2 bg-red-50 border border-red-200 rounded text-red-600 text-sm">
+              {error}
+            </div>
+          )}
+          
+          {fileInfo && (
+            <div className="mt-4">
+              <h3 className="text-md font-medium mb-2">Datei-Informationen:</h3>
+              <div className="text-sm border rounded p-2">
+                <p><strong>Name:</strong> {fileInfo.fileName}</p>
+                <p><strong>Größe:</strong> {Math.round(fileInfo.fileSize / 1024)} KB</p>
+                <p><strong>Typ:</strong> {fileInfo.fileType}</p>
+              </div>
+            </div>
+          )}
+          
+          {tableOfContents.length > 0 && (
+            <div className="mt-4">
+              <h3 className="text-md font-medium mb-2">Inhaltsverzeichnis:</h3>
+              <ul className="text-sm space-y-1 max-h-60 overflow-y-auto border rounded p-2">
+                {tableOfContents.map((entry, index) => (
+                  <li 
+                    key={index} 
+                    className="truncate hover:text-blue-600 cursor-pointer"
+                    style={{ paddingLeft: `${entry.level * 0.5}rem` }}
+                    title={entry.title}
+                    onClick={() => setKeyword(entry.title)}
+                  >
+                    {entry.title}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          
+          {pdfText && (
+            <div className="mt-4">
+              <h3 className="text-md font-medium mb-2">PDF-Text (Auszug):</h3>
+              <div className="text-xs border rounded p-2 max-h-40 overflow-y-auto">
+                {pdfText}...
+              </div>
+            </div>
+          )}
+          
+          {/* Neue Abschnitt für die Textextraktion */}
+          {fileInfo && (
+            <div className="mt-4">
+              <h3 className="text-md font-medium mb-2">Abschnitt extrahieren:</h3>
+              <div className="flex space-x-2 mb-2">
+                <input 
+                  type="text" 
+                  value={keyword}
+                  onChange={(e) => setKeyword(e.target.value)}
+                  placeholder="Keyword eingeben"
+                  className="flex-1 border rounded p-1 text-sm"
+                />
+                <button 
+                  onClick={extractSection}
+                  disabled={isExtracting || !keyword}
+                  className="bg-blue-500 text-white px-2 py-1 rounded text-sm disabled:bg-gray-300"
+                >
+                  {isExtracting ? '...' : 'Suchen'}
+                </button>
+              </div>
+              
+              {extractedSection && (
+                <div className="text-xs border rounded p-2 max-h-60 overflow-y-auto bg-gray-50">
+                  <pre className="whitespace-pre-wrap">{extractedSection}</pre>
+                </div>
+              )}
+            </div>
+          )}
+          
+          <div className="mt-4 text-xs text-gray-500">
+            <p>Status: {isLoading ? 'Wird verarbeitet...' : error && !fileInfo ? 'Fehler' : fileInfo ? 'Erfolgreich' : 'Bereit'}</p>
+            <p>Überschriften: {tableOfContents.length}</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
